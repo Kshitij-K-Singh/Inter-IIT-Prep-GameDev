@@ -7,6 +7,7 @@ public class player_movement : MonoBehaviour
     [Header("Movement Settings")]
     public float moveSpeed = 5f;
     public float runSpeed = 6f;
+    public float Gravity = -9.81f;
 
     [Header("Interaction Settings")]
     public float interactRange = 3f;
@@ -59,15 +60,25 @@ public class player_movement : MonoBehaviour
             currentSpeed = runSpeed;
         }
 
+        Vector3 horizontalMove = Vector3.zero;
+
         if (moveDirection.magnitude >= 0.1f)
         {
             float targetAngle = Mathf.Atan2(moveDirection.x, moveDirection.z) * Mathf.Rad2Deg;
             transform.rotation = Quaternion.Euler(0f, targetAngle, 0f);
 
-            controller.Move(moveDirection * currentSpeed * Time.deltaTime);
+            // Set the horizontal movement vector
+            horizontalMove = moveDirection * currentSpeed;
         }
 
-        controller.Move(playerVelocity * Time.deltaTime);
+        // Apply gravity to the player's vertical velocity
+        playerVelocity.y += Gravity * Time.deltaTime;
+
+        // Combine horizontal movement and vertical velocity into one vector
+        Vector3 finalMove = horizontalMove + playerVelocity;
+
+        // Apply the combined movement to the CharacterController
+        controller.Move(finalMove * Time.deltaTime);
 
         UpdateAnimator(moveDirection);
     }
@@ -96,7 +107,11 @@ public class player_movement : MonoBehaviour
         }
 
         if (Input.GetButtonDown("Jump"))
+        {
+            Gravity = 0f;
             anim.SetTrigger("Jump");
+            Gravity = -9.81f;
+        }
     }
 
     // --- Interaction ---

@@ -4,30 +4,62 @@ using UnityEngine;
 
 public class LoopManager : MonoBehaviour
 {
+    public static LoopManager Instance; // Singleton access for LoopZone
+    public Pressure_Plate pr;
+    public Gate_PrsPlt gpr;
+
     [Header("Loop Settings")]
     [Tooltip("How long each loop runs (seconds)")]
     public float loopLength = 10f;
 
     [Header("References")]
-    public GameObject player;                 // assign your player GameObject
-    public GameObject echoPrefab;             // assign a prefab with EchoController
-    public PlayerRecorder playerRecorder;     // assign the recorder on the player
+    public GameObject player;
+    public GameObject echoPrefab;
+    public PlayerRecorder playerRecorder;
 
-    // runtime
+    [Header("Audio Settings")]
+    [Tooltip("Sound to play when player teleports at end of loop")]
+    public AudioClip teleportClip;
+    [Range(0f, 1f)] public float teleportVolume = 1f;
+    private AudioSource audioSource;
+
     private Vector3 loopStartPosition;
     private Quaternion loopStartRotation;
     private bool isLooping = false;
     private Coroutine loopCoroutine;
     private List<GameObject> spawnedEchoes = new List<GameObject>();
 
+    private bool playerInZone = false; // ✅ new flag
+
+    void Awake()
+    {
+        Instance = this;
+
+        audioSource = GetComponent<AudioSource>();
+        if (audioSource == null)
+            audioSource = gameObject.AddComponent<AudioSource>();
+    }
+
     void Update()
     {
-        // debug: press L to toggle loop (editor/testing)
+        // Only allow L key if player is inside trigger zone
         if (Input.GetKeyDown(KeyCode.L))
         {
+            if (!playerInZone)
+            {
+                Debug.Log("Cannot start loop — player not inside loop zone!");
+                return;
+            }
+
             if (!isLooping) StartLoop();
             else StopLoopEarly();
         }
+    }
+
+    // Called by LoopZone.cs
+    public void SetPlayerInZone(bool inZone)
+    {
+        playerInZone = inZone;
     }
 
     public void StartLoop()
@@ -40,7 +72,7 @@ public class LoopManager : MonoBehaviour
 
         if (player == null || playerRecorder == null || echoPrefab == null)
         {
-            Debug.LogError("LoopManager: Missing references. Assign player, playerRecorder and echoPrefab.");
+            Debug.LogError("LoopManager: Missing references. Assign player, playerRecorder, and echoPrefab.");
             return;
         }
 
@@ -48,10 +80,7 @@ public class LoopManager : MonoBehaviour
         loopStartPosition = player.transform.position;
         loopStartRotation = player.transform.rotation;
 
-        // start recording
         playerRecorder.StartRecording();
-
-        // begin coroutine that ends after loopLength
         loopCoroutine = StartCoroutine(LoopTimerCoroutine());
         isLooping = true;
 
@@ -64,7 +93,6 @@ public class LoopManager : MonoBehaviour
         while (t < loopLength)
         {
             t += Time.deltaTime;
-            // optionally update UI here with (loopLength - t)
             yield return null;
         }
 
@@ -80,18 +108,23 @@ public class LoopManager : MonoBehaviour
 
     private void EndLoop()
     {
-        // stop recording and grab recorded frames
         playerRecorder.StopRecording();
         List<RecordedFrame> frames = playerRecorder.GetFramesCopy();
+        pr.ForceRelease();
+        gpr.ForceRelease();
 
-        // spawn the echo at the captured start transform and hand it recorded frames
         SpawnEchoAt(loopStartPosition, loopStartRotation, frames, loopLength);
-
-        // reset player to start transform (and zero velocities)
+        PlayTeleportSound();
         ResetPlayerToStart();
 
         isLooping = false;
         Debug.Log("Loop ended, echo spawned. Player reset to start.");
+    }
+
+    private void PlayTeleportSound()
+    {
+        if (teleportClip == null || audioSource == null) return;
+        audioSource.PlayOneShot(teleportClip, teleportVolume);
     }
 
     private void SpawnEchoAt(Vector3 pos, Quaternion rot, List<RecordedFrame> frames, float totalLoopLength)
@@ -112,7 +145,6 @@ public class LoopManager : MonoBehaviour
 
     private void ResetPlayerToStart()
     {
-        // If player has a Rigidbody, stop velocities first
         Rigidbody rb = player.GetComponent<Rigidbody>();
         if (rb != null)
         {
@@ -123,7 +155,6 @@ public class LoopManager : MonoBehaviour
         }
         else
         {
-            // disable character controller briefly if present to avoid issues setting transform
             CharacterController cc = player.GetComponent<CharacterController>();
             if (cc != null) cc.enabled = false;
 
@@ -132,11 +163,7 @@ public class LoopManager : MonoBehaviour
 
             if (cc != null) cc.enabled = true;
         }
-
-        // If player has a player controller script, you may need to reset its internal state (velocity, input buffers)
-        // Example: PlayerController pc = player.GetComponent<PlayerController>(); if (pc != null) pc.ResetState();
     }
 
-    // Optional: get the number of active echoes
     public int ActiveEchoCount() => spawnedEchoes.Count;
 }
